@@ -15,11 +15,23 @@ set_target_properties(
     CXX_STANDART_REQUIRED ON
 )
 
-target_compile_options(
-    ip_filter
-    PRIVATE
-    /W4
-)
+if (MSVC)
+
+    target_compile_options(
+        ip_filter
+        PRIVATE
+        /W4
+    )
+
+else()
+
+    target_compile_options(
+        ip_filter
+        PRIVATE
+        -Wall -Wextra -pedantic -Werror
+    )
+
+endif()
 
 set(CPACK_GENERATOR DEB)
 
