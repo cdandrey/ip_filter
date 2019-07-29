@@ -22,7 +22,7 @@ if (MSVC)
         PRIVATE
         /W4
     )
-
+    message(STATUS TARGET_COMPILE_OPTION: MSVC)
 else()
 
     target_compile_options(
