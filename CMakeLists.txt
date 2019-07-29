@@ -22,7 +22,6 @@ if (MSVC)
         PRIVATE
         /W4
     )
-    message(STATUS TARGET_COMPILE_OPTION: MSVC)
 else()
 
     target_compile_options(
@@ -33,6 +32,8 @@ else()
 
 endif()
 
+install(TARGETS ip_filter RUNTIME DESTINATION bin)
+
 set(CPACK_GENERATOR DEB)
 
 set(CPACK_PACKAGE_VERSION_MAJOR "${PROJECT_VERSION_MAJOR}")
@@ -40,7 +41,5 @@ set(CPACK_PACKAGE_VERSION_MINOR "${PROJECT_VERSION_MINOR}")
 set(CPACK_PACKAGE_VERSION_PATCH "${PROJECT_VERSION_PATCH}")
 
 set(CPACK_PACKAGE_CONTACT cdandrey@gmail.com)
-
-install(TARGETS ip_filter RUNTIME DESTINATION bin)
 
 include(CPack)

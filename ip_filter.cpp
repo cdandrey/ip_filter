@@ -33,7 +33,7 @@ auto get_key(const str_t &s, char zapendya)
     return key;
 }
 
-int main(int argc, char const *argv[])
+int main(int, char const **)
 {
     try
     {
