@@ -4,7 +4,7 @@
 #include <algorithm>
 #include <tuple>
 
-enum KeyOperation {or,and};
+enum class KeyOperation {or,and};
 
 using v_t = std::vector<int>;
 using vu_t = std::vector<unsigned>;
