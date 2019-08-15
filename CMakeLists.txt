@@ -4,19 +4,13 @@
 cmake_minimum_required(VERSION 3.2)
 
 if (DEFINED ENV{TRAVIS_BUILD_NUMBER})
-    project(prj_ip_filter_root VERSION 0.0.$ENV{TRAVIS_BUILD_NUMBER})
+    project(prj_ip_filter VERSION 0.0.$ENV{TRAVIS_BUILD_NUMBER})
 else()
-    project(prj_ip_filter_root VERSION 0.0.1)
+    project(prj_ip_filter VERSION 0.0.1)
 endif()
-
-set (CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 add_subdirectory(src)
 add_subdirectory(lib)
-
-enable_testing()
-
-add_subdirectory(googletest)
 add_subdirectory(test)
 
 set(CPACK_GENERATOR DEB)
