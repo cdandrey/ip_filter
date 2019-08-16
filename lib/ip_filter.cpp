@@ -4,7 +4,7 @@
 #include <algorithm>
 #include <tuple>
 
-enum class KeyOperation {or,and};
+enum class KeyOperation {e_or,e_end};
 
 using v_t = std::vector<int>;
 using vu_t = std::vector<unsigned>;
@@ -33,14 +33,16 @@ unsigned ipf::get_key(const std::string &s, char zapendya)
 	key = (key<<8) | std::stoi(s.substr(start));
 	return key;
 }
+//--------------------------------------------------------------------------------------
 
-std::tuple<v_t,vko_t > parser_ip_mask(const std::string &mask)
+
+auto parser_ip_mask(const std::string &mask)
 {
 	v_t key;
 	vko_t op;
 	int k{0};
 	int n{-1};
-	int p{0};
+	unsigned p{0};
 	int d{-1};
 
 	while (p < mask.length())
@@ -54,9 +56,9 @@ std::tuple<v_t,vko_t > parser_ip_mask(const std::string &mask)
 		else 
 		{
 			if (mask.at(p) == '.') 
-				op.push_back(KeyOperation::and);
+				op.push_back(KeyOperation::e_end);
 			else if (mask.at(p) == '|')
-				op.push_back(KeyOperation::or);
+				op.push_back(KeyOperation::e_or);
 			else
 				throw std::invalid_argument("Error: invalid ip_mask: " + mask);
 
@@ -76,6 +78,7 @@ std::tuple<v_t,vko_t > parser_ip_mask(const std::string &mask)
 	return std::make_tuple(key,op);
 }
 //--------------------------------------------------------------------------------------
+
 
 unsigned arr_to_uint(const vu_t &a)
 {
@@ -101,7 +104,7 @@ unsigned make_hash(int first,int last,const v_t &key,unsigned init_hash,const v_
 //--------------------------------------------------------------------------------------
 
 
-std::tuple<unsigned,unsigned> clip_bound(unsigned bnd_up,unsigned bnd_up_n,unsigned bnd_low,unsigned bnd_low_n)
+auto clip_bound(unsigned bnd_up,unsigned bnd_up_n,unsigned bnd_low,unsigned bnd_low_n)
 {
 	if (bnd_up < bnd_up_n)
 		bnd_up = bnd_up_n;
@@ -115,7 +118,7 @@ std::tuple<unsigned,unsigned> clip_bound(unsigned bnd_up,unsigned bnd_up_n,unsig
 //--------------------------------------------------------------------------------------
 
 
-std::tuple<vu_t,vu_t,unsigned,unsigned> make_mask(const v_t &key,const vko_t &op)
+auto make_mask(const v_t &key,const vko_t &op)
 {
 	vu_t msk;
 	vu_t val;
@@ -124,9 +127,9 @@ std::tuple<vu_t,vu_t,unsigned,unsigned> make_mask(const v_t &key,const vko_t &op
 	int op_first{-1};
 	v_t max(key.size(),255);
 
-	for (int i = 0; i < op.size(); ++i)
+	for (unsigned i = 0; i < op.size(); ++i)
 	{
-		if (op.at(i) == KeyOperation::or && op_first != -1)
+		if (op.at(i) == KeyOperation::e_or && op_first != -1)
 		{
 			msk.push_back(make_hash(op_first,i + 1,key,0,max,0));
 			val.push_back(make_hash(op_first,i + 1,key,0,key,0));
@@ -135,14 +138,14 @@ std::tuple<vu_t,vu_t,unsigned,unsigned> make_mask(const v_t &key,const vko_t &op
 
 			op_first = -1;
 		}        
-		else if (op.at(i) == KeyOperation::or)
+		else if (op.at(i) == KeyOperation::e_or)
 		{
 			msk.push_back(make_hash(i,i + 1,key,0,max,0));
 			val.push_back(make_hash(i,i + 1,key,0,key,255));
 
 			std::tie (bnd_up,bnd_low) = clip_bound(bnd_up,make_hash(i,i + 1,key,255,key,255),bnd_low,val.at(val.size() - 1));
 		} 
-		else if (op.at(i) == KeyOperation::and && op_first == -1)
+		else if (op.at(i) == KeyOperation::e_end && op_first == -1)
 		{
 			op_first = i;
 		}
@@ -190,7 +193,7 @@ ipf::ip_list_t ipf::filter(const std::string &mask,const ipf::ip_pool_t &pool)
 	while (it != pool.cend() && it->first > bnd_low) 
 	{
 		is_equal = false;
-		for (int i = 0; i < msk.size(); ++i) 
+		for (unsigned i = 0; i < msk.size(); ++i) 
 			is_equal = is_equal || ((it->first & msk.at(i)) == val.at(i));
 
 		if (is_equal)
