@@ -148,7 +148,7 @@ auto make_bound(const vu_t & keys,const vu_t & ops)
 
     // include keys to bnd
     int shift;
-    for (int i = begin; i < C_KEY_NUM; ++i)
+    for (unsigned i = begin; i < C_KEY_NUM; ++i)
     {
         shift = C_KEY_BITWIDTH*(C_KEY_NUM - i - 1);
 

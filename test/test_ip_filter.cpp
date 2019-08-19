@@ -2,7 +2,7 @@
 #include <iostream>
 #include <string>
 #include <gtest/gtest.h>
-#include "../../ip_filter/lib/ip_filter.h"
+#include "../lib/ip_filter.h"
 
 const int C_MAX_LEN_IP{15};
 const int C_MAX_IP{255};
