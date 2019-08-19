@@ -3,12 +3,17 @@
 #include <iostream>
 #include <algorithm>
 #include <tuple>
+#include <limits>
 
-enum class KeyOperation {e_or,e_end};
-
-using v_t = std::vector<int>;
 using vu_t = std::vector<unsigned>;
-using vko_t = std::vector<KeyOperation>;
+
+const unsigned C_KEY_NUM = 4;
+const unsigned C_KEY_BITWIDTH = 8;
+const unsigned C_KEY_MAX = (1<<C_KEY_BITWIDTH) - 1;
+const unsigned C_KEY_VOID = std::numeric_limits<unsigned>::max();
+const unsigned C_IP_HASH_MAX = C_KEY_VOID;
+const unsigned C_OP_OR = '|';
+const unsigned C_OP_AND = '.';
 
 // ("",  '.') -> 0
 // ("11", '.') -> 11<<8
@@ -16,38 +21,37 @@ using vko_t = std::vector<KeyOperation>;
 // ("11.", '.') -> 11<<8 + 0
 // (".11", '.') -> 0<<8 + 11
 // ("11.22.33.255", '.') -> ((11<<8 + 22)<<8 + 33)<<8 + 255
-unsigned ipf::get_key(const std::string &s, char zapendya)
+unsigned get_ip_hash(const std::string &s, char zapendya)
 {
 
-	unsigned key = 0;
+	unsigned keys = 0;
 	auto stop = s.find_first_of(zapendya);
 	decltype(stop) start = 0;
 
 	while (stop != std::string::npos)
 	{
-		key = (key<<8) | std::stoi(s.substr(start, stop - start));
+		keys = (keys<<8) | std::stoi(s.substr(start, stop - start));
 		start = stop + 1;
 		stop = s.find_first_of(zapendya, start);
 	}
 
-	key = (key<<8) | std::stoi(s.substr(start));
-	return key;
+	keys = (keys<<8) | std::stoi(s.substr(start));
+	return keys;
 }
 //--------------------------------------------------------------------------------------
 
 
-auto parser_ip_mask(const std::string &mask)
+auto parser_filter_template(const std::string &filter_template)
 {
-	v_t key;
-	vko_t op;
-	int k{0};
-	int n{-1};
-	unsigned p{0};
+	vu_t keys;
+	vu_t ops;
+	unsigned n{C_KEY_VOID};
 	int d{-1};
+	int k{0};
 
-	while (p < mask.length())
+    for (auto ch : filter_template)
 	{
-		d = mask.at(p) - '0';
+		d = ch - '0';
 		if (d >= 0 && d < 10)
 		{
 			n = n*k + d;
@@ -55,152 +59,164 @@ auto parser_ip_mask(const std::string &mask)
 		} 
 		else 
 		{
-			if (mask.at(p) == '.') 
-				op.push_back(KeyOperation::e_end);
-			else if (mask.at(p) == '|')
-				op.push_back(KeyOperation::e_or);
-			else
-				throw std::invalid_argument("Error: invalid ip_mask: " + mask);
+            ops.push_back(static_cast<unsigned>(ch));
+			keys.push_back(n);
 
-			if (n > 255)
-				throw std::invalid_argument("Error: invalid ip_mask: " + mask);
-
-			key.push_back(n);
-			n = -1;
+			n = C_KEY_VOID;
 			k = 0;
 		}
-
-		++p;
 	} 
 
-	key.push_back(n);
+	keys.push_back(n);
+    ops.push_back(C_OP_OR);
 
-	return std::make_tuple(key,op);
+	return std::make_tuple(keys,ops);
 }
 //--------------------------------------------------------------------------------------
 
 
-unsigned arr_to_uint(const vu_t &a)
+auto make_mask(const vu_t &keys,const vu_t &ops)
 {
-	unsigned v{0};
+    vu_t mask;
+    vu_t value;
+    unsigned m{0};
+    unsigned v{0};
 
-	for (const auto x : a)
-		v = static_cast<unsigned>(v<<8) + x;
+    for (unsigned i = 0; i < C_KEY_NUM; ++i)
+    {
+        if (keys.at(i) == C_KEY_VOID)
+        {
+            v <<= C_KEY_BITWIDTH;
+            m <<= C_KEY_BITWIDTH;
 
-	return v;
+            if ((i == C_KEY_NUM - 1) && (v != 0 || value.size() == 0)) 
+            {
+                mask.push_back(m);
+                value.push_back(v);
+            }
+        }
+        else if (ops.at(i) == C_OP_OR)
+        {
+            v = ((v<<C_KEY_BITWIDTH) | keys.at(i))<<(C_KEY_BITWIDTH*(C_KEY_NUM - i - 1));
+            m = ((m<<C_KEY_BITWIDTH) | C_KEY_MAX )<<(C_KEY_BITWIDTH*(C_KEY_NUM - i - 1));
+
+            value.push_back(v);
+            mask.push_back(m);
+
+            v = 0;
+            m = 0;
+        }
+        else
+        {
+            v = (v<<C_KEY_BITWIDTH) | keys.at(i);
+            m = (m<<C_KEY_BITWIDTH) | C_KEY_MAX;
+        }
+    }
+
+    return std::make_tuple(value,mask);
+}
+//----------------------------------------------------------------------------------------
+
+
+auto make_bound(const vu_t & keys,const vu_t & ops)
+{
+    unsigned bnd_up;
+    unsigned bnd_low;
+
+    // beginer index of keys which inclunded to boundery value
+    //      ops(2) == OR -> begin == 3 -> included 3       keys
+    // else ops(1) == OR -> begin == 2 -> included 2,3     keys
+    // else ops(0) == OR -> begin == 1 -> included 1,2,3   keys
+    // else              -> begin == 0 -> included 0,1,2,3 keys
+    unsigned begin = 0;
+    for (int i = C_KEY_NUM - 2; i >= 0; --i)
+        if (ops.at(i) == C_OP_OR)
+        {
+            begin = i + 1;
+            break;
+        }
+
+    // start value bnd_up
+    // begin == 3 -> bnd_up == 0xff_ff_ff_00
+    // begin == 2 -> bnd_up == 0xff_ff_00_00
+    // begin == 1 -> bnd_up == 0xff_00_00_00
+    // begin == 0 -> bnd_up == 0x00_00_00_00
+    bnd_up = ( begin == 0 ) ? 0 : C_IP_HASH_MAX<<(C_KEY_BITWIDTH*(C_KEY_NUM - begin));    // shift by 32 undefined behavior
+
+    // start value bnd_low == 0
+    bnd_low = 0;
+
+    // include keys to bnd
+    int shift;
+    for (int i = begin; i < C_KEY_NUM; ++i)
+    {
+        shift = C_KEY_BITWIDTH*(C_KEY_NUM - i - 1);
+
+        if (keys.at(i) != C_KEY_VOID) {
+            bnd_up  |= keys.at(i)<<shift;
+            bnd_low |= keys.at(i)<<shift;
+        }
+        else
+        {
+            bnd_up  |= C_KEY_MAX<<shift;
+        }
+    }
+
+    return std::make_tuple(bnd_low,bnd_up);
+
+}
+//----------------------------------------------------------------------------------------
+
+
+ipf::ip_pool_t ipf::get_ip_pool()
+{
+    ipf::ip_pool_t pool;
+
+    for (std::string line; std::getline(std::cin, line);)
+    {
+        auto ip_str = line.substr(0, line.find_first_of('\t'));
+        pool.insert({ get_ip_hash(ip_str,'.'),ip_str });
+    }
+
+    return pool;
 }
 //--------------------------------------------------------------------------------------
 
 
-unsigned make_hash(int first,int last,const v_t &key,unsigned init_hash,const v_t &valid_hash = {255,255,255,255},unsigned un_valid_hash = 0)
+ipf::ip_list_t ipf::filter(const std::string &filter_template,const ipf::ip_pool_t &pool)
 {
-	vu_t tmpl_hash(key.size(),init_hash);
+	vu_t keys;
+	vu_t ops;
 
-	for (int i = first; i < last; ++i)
-		tmpl_hash[i] = (key.at(i) != -1) ? static_cast<unsigned>(valid_hash.at(i)) : un_valid_hash;
+	std::tie (keys,ops) = std::move(parser_filter_template(filter_template));
 
-	return arr_to_uint(tmpl_hash);
-}
-//--------------------------------------------------------------------------------------
+	vu_t mask;
+	vu_t value;
 
+	std::tie (value,mask) = std::move(make_mask(keys,ops));
 
-auto clip_bound(unsigned bnd_up,unsigned bnd_up_n,unsigned bnd_low,unsigned bnd_low_n)
-{
-	if (bnd_up < bnd_up_n)
-		bnd_up = bnd_up_n;
-
-	bnd_low_n = bnd_low_n == 0 ? 0 : bnd_low_n - 1;
-	if (bnd_low > bnd_low_n)
-		bnd_low = bnd_low_n;
-
-	return std::make_tuple(bnd_up,bnd_low);
-}
-//--------------------------------------------------------------------------------------
-
-
-auto make_mask(const v_t &key,const vko_t &op)
-{
-	vu_t msk;
-	vu_t val;
-	unsigned bnd_up{0};
-	unsigned bnd_low{0xffffffff};
-	int op_first{-1};
-	v_t max(key.size(),255);
-
-	for (unsigned i = 0; i < op.size(); ++i)
-	{
-		if (op.at(i) == KeyOperation::e_or && op_first != -1)
-		{
-			msk.push_back(make_hash(op_first,i + 1,key,0,max,0));
-			val.push_back(make_hash(op_first,i + 1,key,0,key,0));
-
-			std::tie (bnd_up,bnd_low) = clip_bound(bnd_up,make_hash(op_first,i + 1,key,255,key,255),bnd_low,val.at(val.size() - 1));
-
-			op_first = -1;
-		}        
-		else if (op.at(i) == KeyOperation::e_or)
-		{
-			msk.push_back(make_hash(i,i + 1,key,0,max,0));
-			val.push_back(make_hash(i,i + 1,key,0,key,255));
-
-			std::tie (bnd_up,bnd_low) = clip_bound(bnd_up,make_hash(i,i + 1,key,255,key,255),bnd_low,val.at(val.size() - 1));
-		} 
-		else if (op.at(i) == KeyOperation::e_end && op_first == -1)
-		{
-			op_first = i;
-		}
-	}
-
-	if (op_first != -1)
-	{
-		msk.push_back(make_hash(op_first,key.size(),key,0,max,0));
-		val.push_back(make_hash(op_first,key.size(),key,0,key,0));
-
-		std::tie (bnd_up,bnd_low) = clip_bound(bnd_up,make_hash(op_first,key.size(),key,255,key,255),bnd_low,val.at(val.size() - 1));
-	}        
-	else 
-	{
-		auto i{key.size() - 1};
-
-		msk.push_back(make_hash(i,i + 1,key,0,max,0));
-		val.push_back(make_hash(i,i + 1,key,0,key,255));
-
-		std::tie (bnd_up,bnd_low) = clip_bound(bnd_up,make_hash(i,i + 1,key,255,key,255),bnd_low,val.at(val.size() - 1));
-	}
-
-	return std::make_tuple(msk,val,bnd_up,bnd_low);
-}
-//--------------------------------------------------------------------------------------
-
-
-ipf::ip_list_t ipf::filter(const std::string &mask,const ipf::ip_pool_t &pool)
-{
-	v_t key;
-	vko_t op;
-
-	std::tie (key,op) = std::move(parser_ip_mask(mask));
-
-	vu_t msk;
-	vu_t val;
 	unsigned bnd_up;
 	unsigned bnd_low;
 
-	std::tie (msk,val,bnd_up,bnd_low) = std::move(make_mask(key,op));
+	std::tie (bnd_low,bnd_up) = std::move(make_bound(keys,ops));
 
 	ipf::ip_list_t list;
 	auto it = pool.lower_bound(bnd_up);
-	bool is_equal;
-	while (it != pool.cend() && it->first > bnd_low) 
-	{
-		is_equal = false;
-		for (unsigned i = 0; i < msk.size(); ++i) 
-			is_equal = is_equal || ((it->first & msk.at(i)) == val.at(i));
 
-		if (is_equal)
-			list.push_back(it->second);
+	while (it != pool.cend() && it->first >= bnd_low) 
+	{
+		for (unsigned i = 0; i < mask.size(); ++i) 
+			if ((it->first & mask.at(i)) == value.at(i)) 
+            {
+                list.push_back(it->second);
+                break;
+            }
 
 		++it;
 	}
 
 	return list;
 }
+//--------------------------------------------------------------------------------------
+
+

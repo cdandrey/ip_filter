@@ -5,13 +5,7 @@ int main(int, char **)
 {
 	try
 	{	
-		ipf::ip_pool_t ip_pool;
-
-		for (std::string line; std::getline(std::cin, line);)
-		{
-			auto ip_str = line.substr(0, line.find_first_of('\t'));
-			ip_pool.insert({ ipf::get_key(ip_str,'.'),ip_str });
-		}
+        auto ip_pool(std::move(ipf::get_ip_pool()));
 
 		ipf::ip_list_t ls;
 		ls = std::move(ipf::filter("....",ip_pool));	// lex reverse sort
